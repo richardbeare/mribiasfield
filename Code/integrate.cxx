@@ -62,7 +62,7 @@ void resetBorder(typename TImage::Pointer dest, typename TImage::Pointer source,
 
 template <class TImage>
 void fourierSolve(typename TImage::Pointer& imgData, typename TImage::Pointer& imgGradX, 
-		  typename TImage::Pointer& imgGradY, float dataCost)
+		  typename TImage::Pointer& imgGradY, typename TImage::Pointer& imgGradZ, float dataCost)
 {
 
   unsigned threadCount = itk::MultiThreader::GetGlobalMaximumNumberOfThreads();
@@ -96,30 +96,72 @@ void fourierSolve(typename TImage::Pointer& imgData, typename TImage::Pointer& i
   std::vector<typename TImage::Pointer> GradImVec(TImage::ImageDimension);
   GradImVec[0]=imgGradX;
   GradImVec[1]=imgGradY;
+  if (TImage::ImageDimension == 3)
+    {
+    GradImVec[2]=imgGradZ;
+    }
 
   //compute two 1D lookup tables for computing the DCT of a 2D Laplacian on the fly
-  float* ftLapY = (float*) fftwf_malloc(sizeof(*ftLapY) * height);
-  float* ftLapX = (float*) fftwf_malloc(sizeof(*ftLapX) * width);
-  INSIST(ftLapX != NULL);
-  INSIST(ftLapY != NULL);
+  // float* ftLapY = (float*) fftwf_malloc(sizeof(*ftLapY) * height);
+  // float* ftLapX = (float*) fftwf_malloc(sizeof(*ftLapX) * width);
+
+  typename TImage::PointType lapoff;
+  lapoff.Fill(0);
+  lapoff[TImage::ImageDimension - 1] = -2.0 * TImage::ImageDimension;
+
+
+  std::cout << lapoff << std::endl;
+  std::vector<float *> ftLap(TImage::ImageDimension);
+  for (unsigned d = 0; d < TImage::ImageDimension; d++)
+    {
+    ftLap[d]=(float *)fftwf_malloc(sizeof(*(ftLap[d])) * sz[d]);
+    INSIST(ftLap[d] != NULL);
+
+    for (unsigned p = 0; p < sz[d]; p++)
+      {
+      ftLap[d][p] = 2.0f * cos(M_PI_FLOAT * p / (sz[d] - 1)) + lapoff[d];
+      }
+
+    }
+
+  // INSIST(ftLapX != NULL);
+  // INSIST(ftLapY != NULL);
 
   // need to extend this to include ftLapZ
 
-  for(int x = 0; x < width; x++)
-    {
-    ftLapX[x] = 2.0f * cos(M_PI_FLOAT * x / (width - 1));
-    }
-  for(int y = 0; y < height; y++)
-    {
-    ftLapY[y] = -4.0f + (2.0f * cos(M_PI_FLOAT * y / (height - 1)));
-    }
+  // for(int x = 0; x < width; x++)
+  //   {
+  //   ftLapX[x] = 2.0f * cos(M_PI_FLOAT * x / (width - 1));
+  //   }
+  // for(int y = 0; y < height; y++)
+  //   {
+  //   ftLapY[y] = -4.0f + (2.0f * cos(M_PI_FLOAT * y / (height - 1)));
+  //   }
 
   //Create a DCT-I plan for, which is its own inverse.
   fftwf_plan_with_nthreads(threadCount);
   fftwf_plan fftPlan;	
-  fftPlan = fftwf_plan_r2r_2d(height, width, 
-			      fftBuff, fftBuff, 
-			      FFTW_REDFT00, FFTW_REDFT00, FFTW_ESTIMATE); //use FFTW_PATIENT when plan can be reused
+
+  //use FFTW_PATIENT when plan can be reused
+  if (TImage::ImageDimension == 2)
+    {
+    fftPlan = fftwf_plan_r2r_2d(height, width, 
+				fftBuff, fftBuff, 
+				FFTW_REDFT00, FFTW_REDFT00, FFTW_ESTIMATE); 
+    }
+  else if (TImage::ImageDimension == 3)
+    {
+    // use patient here, because everything is big
+    fftPlan = fftwf_plan_r2r_3d(sz[2], sz[1], sz[0],
+				fftBuff, fftBuff, 
+				FFTW_REDFT00, FFTW_REDFT00, FFTW_REDFT00, FFTW_ESTIMATE); 
+
+    }
+  else
+    {
+    std::cerr << "Unsupported dimension" << std::endl;
+    return;
+    }
 
   for(int iChannel = 0; iChannel < nBands; iChannel++)
     {
@@ -216,7 +258,7 @@ void fourierSolve(typename TImage::Pointer& imgData, typename TImage::Pointer& i
       resetBorder<TImage>(DGradImVec[dim], GradImVec[dim], dim, -2.0);
       }
 
-    writeIm<TImage>(DGradImVec[0], "tmp.mha");
+//    writeIm<TImage>(DGradImVec[2], "tmp.mha");
 
     typedef typename itk::SubtractImageFilter<TImage, TImage, TImage> SubtractType;
     typename SubtractType::Pointer subtract = SubtractType::New();
@@ -233,19 +275,40 @@ void fourierSolve(typename TImage::Pointer& imgData, typename TImage::Pointer& i
  
 #endif
 
+    writeIm<TImage>(fftIm, "fftIm.nii.gz");
     //transform h_hat to H_hat by taking the DCT of h_hat
     fftwf_execute(fftPlan);
+
     
     //compute F_hat using H_hat (see equation 29 in the paper)
     nodeAddr = 0;
     // about the last non dimension independent part, and non ITK part
+#if 0
     for(int y = 0; y < height; y++)
       for(int x = 0; x < width;  x++, nodeAddr++)
 	{
-	float ftLapResponse = ftLapY[y] + ftLapX[x]; 
+	//float ftLapResponse = ftLapY[y] + ftLapX[x]; 
+	float ftLapResponse = ftLap[0][y] + ftLap[1][x]; 
 	fftBuff[nodeAddr] /= (dataCost - ftLapResponse);
 	}
+#else
+    // only dimension independent way is with an  index iterator?
+//    typedef itk::ImageRegionIteratorWithIndex<TImage> IndexItType;
+    IndexItType ftBuffIt(fftIm, fftIm->GetLargestPossibleRegion());
+    
+    for (ftBuffIt.GoToBegin(); !ftBuffIt.IsAtEnd(); ++ftBuffIt)
+      {
+      typename TImage::IndexType here = ftBuffIt.GetIndex();
+      float ftLapResponse = 0.0;
+      // for (unsigned k=0; k<TImage::ImageDimension; k++)
+      // 	{
+      // 	ftLapResponse += ftLap[k][here[k]];
+      // 	}
+      ftLapResponse = ftLap[0][here[0]] + ftLap[1][here[1]] + ftLap[2][here[2]];
+      ftBuffIt.Set(ftBuffIt.Get()/(dataCost - ftLapResponse));
+      }
 
+#endif
     /**
 		 * Set the DC term of the solution to the value computed above (i.e., the DC term of imgData). 
 		 * When dataCost = 0 (i.e., there is no data image and the problem becomes pure gradient field integration)
@@ -278,8 +341,12 @@ void fourierSolve(typename TImage::Pointer& imgData, typename TImage::Pointer& i
     }
 
   fftwf_free(fftBuff);
-  fftwf_free(ftLapX);
-  fftwf_free(ftLapY);
+  // fftwf_free(ftLapX);
+  // fftwf_free(ftLapY);
+  for (unsigned d=0; d < TImage::ImageDimension; d++)
+    {
+    fftwf_free(ftLap[d]);
+    }
   fftwf_destroy_plan(fftPlan);
   fftwf_cleanup_threads();
 
@@ -291,12 +358,12 @@ void fourierSolve(typename TImage::Pointer& imgData, typename TImage::Pointer& i
 int main(int argc, char * argv[])
 {
   typedef float PixType;
-  const unsigned dim = 2;
+  const unsigned dim = 3;
 
   typedef itk::Image<PixType, dim> ImType;
 
-  ImType::Pointer im, g1, g2;
-//  itk::MultiThreader::SetGlobalMaximumNumberOfThreads(1);
+  ImType::Pointer im, g1, g2, g3;
+  itk::MultiThreader::SetGlobalMaximumNumberOfThreads(1);
 
   im = readIm<ImType>(argv[1]);
 
@@ -308,7 +375,7 @@ int main(int argc, char * argv[])
 
   typedef itk::BackwardDifferenceOperator<PixType, dim> BackOper;
   typedef itk::ForwardDifferenceOperator<PixType, dim> ForwardOper;
-  BackOper bdX, bdY;
+  BackOper bdX, bdY, bdZ;
   ForwardOper fdY;
 
   bdX.SetDirection(0);
@@ -317,6 +384,7 @@ int main(int argc, char * argv[])
   difference->OverrideBoundaryCondition(&rbc);
 
   difference->SetInput(im);
+
   g1 = difference->GetOutput();
   g1->Update();
   g1->DisconnectPipeline();
@@ -324,22 +392,33 @@ int main(int argc, char * argv[])
 
   bdY.SetDirection(1);
   bdY.CreateDirectional();
-
-  fdY.SetDirection(1);
-  fdY.CreateDirectional();
-  
   difference->SetOperator(bdY);
+  difference->OverrideBoundaryCondition(&rbc);
 
   g2 = difference->GetOutput();
   g2->Update();
   g2->DisconnectPipeline();
-  
-  writeIm<ImType>(g1, "dX.mha");
-  writeIm<ImType>(g2, "dY.mha");
 
+
+  bdZ.SetDirection(2);
+  bdZ.CreateDirectional();
+  // // std::cout << bdZ << std::endl;
+  // // std::cout << bdY << std::endl;
+
+  difference->SetOperator(bdZ);
+  difference->OverrideBoundaryCondition(&rbc);
+
+  g3 = difference->GetOutput();
+  g3->Update();
+  g3->DisconnectPipeline();
   
+  // writeIm<ImType>(g1, "dX.nii.gz");
+  // writeIm<ImType>(g2, "dY.nii.gz");
+  // writeIm<ImType>(g3, "dZ.nii.gz");
+
+
   im->FillBuffer(100);
-  fourierSolve<ImType>(im, g1, g2, 0);
+  fourierSolve<ImType>(im, g1, g2, g3, 0);
   writeIm<ImType>(im, "output.mha");
 
   return(EXIT_SUCCESS);

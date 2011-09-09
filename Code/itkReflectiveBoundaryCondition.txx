@@ -57,14 +57,7 @@ ReflectiveBoundaryCondition<TImage>
     if (boundary_offset[i] != 0)
       { // If the neighborhood overlaps on the low edge, then search
 	// in the positive direction
-      if (point_index[i] < static_cast<OffsetValueType>(iterator->GetRadius(i)))
-        {
-        ptr += (boundary_offset[i] - 1 + m_ReflectionOffset) * offset_table[i];
-        }
-      else // search in the negative direction
-        {
-        ptr -= (boundary_offset[i] - 1 + m_ReflectionOffset) * offset_table[i];
-        }
+      ptr += (boundary_offset[i] - 1 + m_ReflectionOffset) * offset_table[i];
       }
     }
 
@@ -119,14 +112,7 @@ ReflectiveBoundaryCondition<TImage>
     if (boundary_offset[i] != 0)
       { // If the neighborhood overlaps on the low edge, then wrap from the
       // low edge of the image.
-      if (point_index[i] < static_cast<OffsetValueType>(iterator->GetRadius(i)))
-        {
-        ptr += (boundary_offset[i] - 1 + m_ReflectionOffset) * offset_table[i];
-        }
-      else // search in the negative direction
-        {
-        ptr -= (boundary_offset[i] - 1 + m_ReflectionOffset) * offset_table[i];
-        }
+      ptr += (boundary_offset[i] - 1 + m_ReflectionOffset) * offset_table[i];
 
       }
     }

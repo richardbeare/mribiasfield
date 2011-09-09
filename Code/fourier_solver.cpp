@@ -39,8 +39,8 @@ void fourierSolve(CFloatImage& imgData, CFloatImage& imgGradX, CFloatImage& imgG
 	fftwf_plan_with_nthreads(NUM_OF_THREADS);
 	fftwf_plan fftPlan;	
 	fftPlan = fftwf_plan_r2r_2d(imgShape.height, imgShape.width, 
-							     fftBuff, fftBuff, 
-								 FFTW_REDFT00, FFTW_REDFT00, FFTW_ESTIMATE); //use FFTW_PATIENT when plan can be reused
+				    fftBuff, fftBuff, 
+				    FFTW_REDFT00, FFTW_REDFT00, FFTW_ESTIMATE); //use FFTW_PATIENT when plan can be reused
 
 	for(int iChannel = 0; iChannel < imgShape.nBands; iChannel++)
 	{
